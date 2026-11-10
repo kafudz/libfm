@@ -51,9 +51,9 @@ static void fm_tab_label_class_init(FmTabLabelClass *klass)
     provider = gtk_css_provider_new();
     gtk_css_provider_load_from_data(provider,
         "#tab-close-btn {\n"
-            "-GtkWidget-focus-padding : 0;\n"
-            "-GtkWidget-focus-line-width : 0;\n"
-            "padding : 0;\n"
+            "outline-width: 0;\n"
+            "outline-offset: 0;\n"
+            "padding: 0;\n"
         "}\n", -1, NULL);
 #else
     gtk_rc_parse_string(

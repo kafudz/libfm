@@ -559,14 +559,25 @@ void fm_file_info_set_from_g_file_data(FmFileInfo *fi, GFile *gf, GFileInfo *inf
 
     g_return_if_fail(fi->path);
 
-    tmp = g_file_info_get_edit_name(inf);
+    if (g_file_info_has_attribute(inf, G_FILE_ATTRIBUTE_STANDARD_EDIT_NAME))
+        tmp = g_file_info_get_edit_name(inf);
+    else
+        tmp = NULL;
     if (!tmp || strcmp(tmp, "/") == 0)
-        tmp = g_file_info_get_display_name(inf);
+        tmp = g_file_info_has_attribute(inf, G_FILE_ATTRIBUTE_STANDARD_DISPLAY_NAME) ?
+              g_file_info_get_display_name(inf) : NULL;
     _fm_path_set_display_name(fi->path, tmp);
 
-    fi->size = g_file_info_get_size(inf);
+    /* Synthetic GFileInfo objects may not carry all standard attributes;
+     * recent GIO versions emit criticals when a typed getter is used
+     * without the corresponding attribute. */
+    fi->size = g_file_info_has_attribute(inf, G_FILE_ATTRIBUTE_STANDARD_SIZE) ?
+               g_file_info_get_size(inf) : 0;
 
-    tmp = g_file_info_get_content_type(inf);
+    if (g_file_info_has_attribute(inf, G_FILE_ATTRIBUTE_STANDARD_CONTENT_TYPE))
+        tmp = g_file_info_get_content_type(inf);
+    else
+        tmp = NULL;
     if(tmp)
         fi->mime_type = fm_mime_type_from_name(tmp);
 
@@ -578,7 +589,8 @@ void fm_file_info_set_from_g_file_data(FmFileInfo *fi, GFile *gf, GFileInfo *inf
     if(g_file_info_has_attribute(inf, G_FILE_ATTRIBUTE_UNIX_GID))
         fi->gid = g_file_info_get_attribute_uint32(inf, G_FILE_ATTRIBUTE_UNIX_GID);
 
-    type = g_file_info_get_file_type(inf);
+    type = g_file_info_has_attribute(inf, G_FILE_ATTRIBUTE_STANDARD_TYPE) ?
+           g_file_info_get_file_type(inf) : G_FILE_TYPE_UNKNOWN;
     if(0 == fi->mode) /* if UNIX file mode is not available, compose a fake one. */
     {
         switch(type)
@@ -623,7 +635,8 @@ void fm_file_info_set_from_g_file_data(FmFileInfo *fi, GFile *gf, GFileInfo *inf
         fi->accessible = TRUE;
 
     /* special handling for symlinks */
-    if (g_file_info_get_is_symlink(inf))
+    if (g_file_info_has_attribute(inf, G_FILE_ATTRIBUTE_STANDARD_IS_SYMLINK) &&
+        g_file_info_get_is_symlink(inf))
     {
         fi->mode &= ~S_IFMT; /* reset type */
         fi->mode |= S_IFLNK; /* set type to symlink */
@@ -665,7 +678,8 @@ void fm_file_info_set_from_g_file_data(FmFileInfo *fi, GFile *gf, GFileInfo *inf
         break;
     case G_FILE_TYPE_SYMBOLIC_LINK:
 _file_is_symlink:
-        uri = g_file_info_get_symlink_target(inf);
+        uri = g_file_info_has_attribute(inf, G_FILE_ATTRIBUTE_STANDARD_SYMLINK_TARGET) ?
+              g_file_info_get_symlink_target(inf) : NULL;
         if(uri)
         {
             if(g_str_has_prefix(uri, "file:///"))
@@ -679,13 +693,18 @@ _file_is_symlink:
     default: /* G_FILE_TYPE_UNKNOWN G_FILE_TYPE_REGULAR G_FILE_TYPE_SPECIAL */
         if(G_UNLIKELY(!fi->mime_type))
         {
-            uri = g_file_info_get_name(inf);
-            fi->mime_type = fm_mime_type_from_file_name(uri);
+            uri = g_file_info_has_attribute(inf, G_FILE_ATTRIBUTE_STANDARD_NAME) ?
+                  g_file_info_get_name(inf) : NULL;
+            if (uri)
+                fi->mime_type = fm_mime_type_from_file_name(uri);
+            if (!fi->mime_type) /* no name at all, use a generic type */
+                fi->mime_type = fm_mime_type_from_name("application/octet-stream");
         }
     }
 
     /* try file-specific icon first */
-    gicon = g_file_info_get_icon(inf);
+    gicon = g_file_info_has_attribute(inf, G_FILE_ATTRIBUTE_STANDARD_ICON) ?
+            g_file_info_get_icon(inf) : NULL;
     if(gicon)
         fi->icon = fm_icon_from_gicon(gicon);
         /* g_object_unref(gicon); this is not needed since
@@ -714,8 +733,10 @@ _file_is_symlink:
     fi->mtime = g_file_info_get_attribute_uint64(inf, G_FILE_ATTRIBUTE_TIME_MODIFIED);
     fi->atime = g_file_info_get_attribute_uint64(inf, G_FILE_ATTRIBUTE_TIME_ACCESS);
     fi->ctime = g_file_info_get_attribute_uint64(inf, G_FILE_ATTRIBUTE_TIME_CHANGED);
-    fi->hidden = g_file_info_get_is_hidden(inf);
-    fi->backup = g_file_info_get_is_backup(inf);
+    fi->hidden = g_file_info_has_attribute(inf, G_FILE_ATTRIBUTE_STANDARD_IS_HIDDEN) &&
+                 g_file_info_get_is_hidden(inf);
+    fi->backup = g_file_info_has_attribute(inf, G_FILE_ATTRIBUTE_STANDARD_IS_BACKUP) &&
+                 g_file_info_get_is_backup(inf);
     fi->name_is_changeable = TRUE; /* GVFS tends to ignore this attribute */
     fi->icon_is_changeable = fi->hidden_is_changeable = FALSE;
     if (g_file_info_has_attribute(inf, G_FILE_ATTRIBUTE_ACCESS_CAN_RENAME))

@@ -92,3 +92,6 @@ noclose_arg=--hold always -e
 open_arg=-e
 noclose_arg=--hold -e
 desktop_id=Alacritty.desktop
+
+[st]
+open_arg=-e
