@@ -3675,6 +3675,14 @@ static void
 exo_icon_view_set_adjustment_upper (GtkAdjustment *adj,
                                     gdouble        upper)
 {
+  /* The upper bound must never be smaller than the page size.  If it is,
+   * GtkScrolledWindow computes a negative maximum scroll position and
+   * mistakes the initial scroll value for an overshoot, which makes it
+   * permanently draw the theme's overshoot indicators.  With themes such as
+   * Fluent that show up as light strips along the bottom/side of the view
+   * whenever the folder content is smaller than the viewport. */
+  upper = MAX (upper, gtk_adjustment_get_page_size(adj));
+
   if (upper != gtk_adjustment_get_upper(adj))
     {
       gdouble min = MAX (0.0, upper - gtk_adjustment_get_page_size(adj));
