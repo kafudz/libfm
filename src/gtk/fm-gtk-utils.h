@@ -70,6 +70,7 @@ gboolean fm_unmount_mount(GtkWindow* parent, GMount* mount, gboolean interactive
 gboolean fm_unmount_volume(GtkWindow* parent, GVolume* vol, gboolean interactive);
 gboolean fm_eject_mount(GtkWindow* parent, GMount* mount, gboolean interactive);
 gboolean fm_eject_volume(GtkWindow* parent, GVolume* vol, gboolean interactive);
+gboolean fm_stop_drive(GtkWindow* parent, GDrive* drive, gboolean interactive);
 
 /* File operations */
 void fm_copy_files(GtkWindow* parent, FmPathList* files, FmPath* dest_dir);

@@ -76,6 +76,7 @@ static gboolean on_button_release(GtkWidget* view, GdkEventButton* evt);
 static void on_mount(GtkAction* act, gpointer user_data);
 static void on_umount(GtkAction* act, gpointer user_data);
 static void on_eject(GtkAction* act, gpointer user_data);
+static void on_safely_remove(GtkAction* act, gpointer user_data);
 static void on_format(GtkAction* act, gpointer user_data);
 
 static void on_remove_bm(GtkAction* act, gpointer user_data);
@@ -115,6 +116,7 @@ PLACES_MENU_XML
   "<menuitem action='Mount'/>"
   "<menuitem action='Unmount'/>"
   "<menuitem action='Eject'/>"
+  "<menuitem action='SafelyRemove'/>"
   "<menuitem action='Format'/>"
   "</placeholder>"
 "</popup>";
@@ -124,6 +126,7 @@ PLACES_MENU_XML
 "<popup>"
   "<placeholder name='ph3'>"
   "<menuitem action='Unmount'/>"
+  "<menuitem action='SafelyRemove'/>"
   "</placeholder>"
 "</popup>";
 
@@ -132,6 +135,7 @@ static GtkActionEntry vol_menu_actions[]=
     {"Mount", NULL, N_("_Mount Volume"), NULL, NULL, G_CALLBACK(on_mount)},
     {"Unmount", NULL, N_("_Unmount Volume"), NULL, NULL, G_CALLBACK(on_umount)},
     {"Eject", NULL, N_("_Eject Removable Media"), NULL, NULL, G_CALLBACK(on_eject)},
+    {"SafelyRemove", NULL, N_("_Safely Remove Drive"), NULL, NULL, G_CALLBACK(on_safely_remove)},
     {"Format", NULL, N_("_Format Volume"), NULL, NULL, G_CALLBACK(on_format)}
 };
 
@@ -836,6 +840,14 @@ static GtkWidget* place_item_get_menu(FmPlacesItem* item, GtkWidget *widget)
             act = gtk_action_group_get_action(act_grp, "Eject");
             gtk_action_set_visible(act, FALSE);
         }
+
+        {
+            GDrive* drive = g_volume_get_drive(vol);
+            act = gtk_action_group_get_action(act_grp, "SafelyRemove");
+            gtk_action_set_visible(act, drive != NULL && g_drive_can_stop(drive));
+            if (drive)
+                g_object_unref(drive);
+        }
     }
     else if(fm_places_item_get_type(item) == FM_PLACES_ITEM_MOUNT)
     {
@@ -862,6 +874,13 @@ static GtkWidget* place_item_get_menu(FmPlacesItem* item, GtkWidget *widget)
              gtk_action_set_visible(act, FALSE);
         act = gtk_action_group_get_action(act_grp, "Eject");
         gtk_action_set_visible(act, FALSE);
+        {
+            GDrive* drive = mnt ? g_mount_get_drive(mnt) : NULL;
+            act = gtk_action_group_get_action(act_grp, "SafelyRemove");
+            gtk_action_set_visible(act, drive != NULL && g_drive_can_stop(drive));
+            if (drive)
+                g_object_unref(drive);
+        }
     }
     else
         goto _out;
@@ -1086,6 +1105,36 @@ static void on_eject(GtkAction* act, gpointer user_data)
                         fm_places_item_get_volume(item), TRUE);
         /* NOTE: the most probably FmPlacesView is destroyed at this point */
     }
+}
+
+static void on_safely_remove(GtkAction* act, gpointer user_data)
+{
+    FmPlacesItem* item = (FmPlacesItem*)user_data;
+    GDrive* drive = NULL;
+    GVolume* vol = NULL;
+    GMount* mnt = NULL;
+
+    switch(fm_places_item_get_type(item))
+    {
+    case FM_PLACES_ITEM_VOLUME:
+        vol = fm_places_item_get_volume(item);
+        drive = g_volume_get_drive(vol);
+        break;
+    case FM_PLACES_ITEM_MOUNT:
+        mnt = fm_places_item_get_mount(item);
+        drive = g_mount_get_drive(mnt);
+        break;
+    default:
+        break;
+    }
+
+    if(drive)
+    {
+        if(g_drive_can_stop(drive))
+            fm_stop_drive(_get_gtk_window_from_action(act), drive, TRUE);
+        g_object_unref(drive);
+    }
+    /* NOTE: the most probably FmPlacesView is destroyed at this point */
 }
 
 static void on_format(GtkAction* act, gpointer user_data)

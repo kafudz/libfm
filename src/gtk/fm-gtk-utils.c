@@ -578,7 +578,8 @@ typedef enum
     MOUNT_GFILE,
     UMOUNT_MOUNT,
     EJECT_MOUNT,
-    EJECT_VOLUME
+    EJECT_VOLUME,
+    STOP_DRIVE
 }MountAction;
 
 struct MountData
@@ -609,6 +610,9 @@ static void on_mount_action_finished(GObject* src, GAsyncResult *res, gpointer u
         break;
     case EJECT_VOLUME:
         data->ret = g_volume_eject_with_operation_finish(G_VOLUME(src), res, &data->err);
+        break;
+    case STOP_DRIVE:
+        data->ret = g_drive_stop_finish(G_DRIVE(src), res, &data->err);
         break;
     }
     g_main_loop_quit(data->loop);
@@ -669,6 +673,24 @@ static gboolean fm_do_mount(GtkWindow* parent, GObject* obj, MountAction action,
                 g_object_unref(mnt);
             }
             g_volume_eject_with_operation(G_VOLUME(obj), G_MOUNT_UNMOUNT_NONE, op, cancellable, on_mount_action_finished, data);
+        }
+        break;
+    case STOP_DRIVE:
+        {
+            /* ensure that CWD is not on any of the drive's filesystems. */
+            GList* vols = g_drive_get_volumes(G_DRIVE(obj));
+            GList* l;
+            for (l = vols; l; l = l->next)
+            {
+                GMount* mnt = g_volume_get_mount(G_VOLUME(l->data));
+                if (mnt) /* it might be unmounted already */
+                {
+                    prepare_unmount(mnt);
+                    g_object_unref(mnt);
+                }
+            }
+            g_list_free_full(vols, g_object_unref);
+            g_drive_stop(G_DRIVE(obj), G_MOUNT_UNMOUNT_NONE, op, cancellable, on_mount_action_finished, data);
         }
         break;
     }
@@ -834,6 +856,24 @@ gboolean fm_eject_mount(GtkWindow* parent, GMount* mount, gboolean interactive)
 gboolean fm_eject_volume(GtkWindow* parent, GVolume* vol, gboolean interactive)
 {
     return fm_do_mount(parent, G_OBJECT(vol), EJECT_VOLUME, interactive);
+}
+
+/**
+ * fm_stop_drive
+ * @parent: a window to place dialog over it
+ * @drive: the drive to stop
+ * @interactive: %TRUE to open dialog window
+ *
+ * Stops a drive, unmounting its volumes and powering it off.
+ * This is what the "Safely Remove Drive" menu item uses.
+ *
+ * Returns: %TRUE in case of success.
+ *
+ * Since: 1.4.2
+ */
+gboolean fm_stop_drive(GtkWindow* parent, GDrive* drive, gboolean interactive)
+{
+    return fm_do_mount(parent, G_OBJECT(drive), STOP_DRIVE, interactive);
 }
 
 
