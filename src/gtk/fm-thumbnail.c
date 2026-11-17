@@ -134,15 +134,19 @@ guint fm_thumbnail_request_get_size(FmThumbnailRequest* req)
 static GObject* read_image_from_file(const char* filename) {
     if (fm_config->thumbnail_max > 0)
     {
-        int w = 1 , h = 1;
+        gint w = 0, h = 0;
+        /* Use 64-bit arithmetic: w * h can overflow a 32-bit int for
+           images with very large dimensions, bypassing the limit and
+           letting GdkPixbuf allocate an enormous buffer. */
+        const gint64 max_pixels = (gint64)fm_config->thumbnail_max << 10;
 
         /* SF bug #895: image of big dimension can be still small due to
            image compression and loading that image into memory can easily
            overrun the available memory, so let limit image by Mpix as well */
-        gdk_pixbuf_get_file_info(filename, &w, &h);
-        /* g_debug("thumbnail generator: image size %dx%d", w, h); */
-        if (w * h > (fm_config->thumbnail_max << 10))
+        if (gdk_pixbuf_get_file_info(filename, &w, &h) != NULL &&
+            w > 0 && h > 0 && (gint64)w * h > max_pixels)
             return NULL;
+        /* g_debug("thumbnail generator: image size %dx%d", w, h); */
     }
     return (GObject*)gdk_pixbuf_new_from_file(filename, NULL);
 }

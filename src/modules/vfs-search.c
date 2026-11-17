@@ -647,6 +647,51 @@ static gboolean fm_search_job_match_filename(FmVfsSearchEnumerator* priv, GFileI
     return ret;
 }
 
+/* Maximum amount of a single line we keep in memory at once. Files with
+ * extremely long lines (minified data, logs without line breaks, binary
+ * files) used to make g_data_input_stream_read_line() allocate the whole
+ * line, which could exhaust memory and kill the process. */
+#define FM_SEARCH_MAX_LINE_SIZE (1024 * 1024)
+/* Amount of data kept between two chunks of an over-long line so that
+ * matches crossing the chunk boundary are still found. */
+#define FM_SEARCH_REGEX_OVERLAP (64 * 1024)
+#define FM_SEARCH_READ_SIZE     (64 * 1024)
+
+/* Match one piece of text against the configured content search. */
+static gboolean fm_search_job_match_content_text(FmVfsSearchEnumerator* priv,
+                                                 const char* text)
+{
+    gboolean ret = FALSE;
+
+    if(priv->content_regex)
+    {
+        /* match using regexp */
+        ret = g_regex_match(priv->content_regex, text, 0, NULL);
+    }
+    else if(priv->content_pattern && priv->content_case_insensitive)
+    {
+        /* Case insensitive search is done on text so we can do utf8
+         * validation + case conversion. */
+        if(g_utf8_validate(text, -1, NULL))
+        {
+            /* this whole piece contains valid UTF-8 */
+            char* down = g_utf8_strdown(text, -1);
+            ret = strstr(down, priv->content_pattern) != NULL;
+            g_free(down);
+        }
+        else /* non-UTF8, treat as ASCII */
+        {
+            char* copy = g_strdup(text);
+            char* p;
+            for(p = copy; *p; ++p)
+                *p = g_ascii_tolower(*p);
+            ret = strstr(copy, priv->content_pattern) != NULL;
+            g_free(copy);
+        }
+    }
+    return ret;
+}
+
 static gboolean fm_search_job_match_content_line_based(FmVfsSearchEnumerator* priv,
                                                        GFileInfo* info,
                                                        GInputStream* stream,
@@ -654,44 +699,105 @@ static gboolean fm_search_job_match_content_line_based(FmVfsSearchEnumerator* pr
                                                        GError** error)
 {
     gboolean ret = FALSE;
-    /* create a buffered data input stream for line-based I/O */
-    GDataInputStream *input_stream = g_data_input_stream_new(stream);
-    do
-    {
-        gsize line_len;
-        char* line = g_data_input_stream_read_line(input_stream, &line_len, cancellable, error);
-        if(line == NULL) /* error or EOF */
-            break;
-        if(priv->content_regex)
-        {
-            /* match using regexp */
-            ret = g_regex_match(priv->content_regex, line, 0, NULL);
-        }
-        else if(priv->content_pattern && priv->content_case_insensitive)
-        {
-            /* case insensitive search is line-based because we need to
-             * do utf8 validation + case conversion and it's easier to
-             * do with lines than with raw streams. */
-            if(g_utf8_validate(line, -1, NULL))
-            {
-                /* this whole line contains valid UTF-8 */
-                char* down = g_utf8_strdown(line, -1);
-                g_free(line);
-                line = down;
-            }
-            else /* non-UTF8, treat as ASCII */
-            {
-                char* p;
-                for(p = line; *p; ++p)
-                    *p = g_ascii_tolower(*p);
-            }
+    gboolean eof = FALSE;
+    gboolean last_was_cr = FALSE;
+    gsize keep = 0;
+    gsize max_line = FM_SEARCH_MAX_LINE_SIZE;
+    char buf[FM_SEARCH_READ_SIZE];
+    GString* line = g_string_sized_new(4096);
 
-            if(strstr(line, priv->content_pattern))
-                ret = TRUE;
+    /* For an exact pattern we have to keep pattern_len - 1 bytes when
+     * splitting an over-long line, otherwise a match crossing the split
+     * would be missed. RegExp search cannot know the match length, so use
+     * a reasonable fixed overlap instead. */
+    if(priv->content_regex)
+        keep = FM_SEARCH_REGEX_OVERLAP;
+    else if(priv->content_pattern)
+    {
+        gsize pattern_len = strlen(priv->content_pattern);
+        if(pattern_len > 1)
+            keep = pattern_len - 1;
+        if(keep > max_line / 2)
+            keep = max_line / 2;
+    }
+    if(keep + FM_SEARCH_READ_SIZE > max_line)
+        max_line = keep + FM_SEARCH_READ_SIZE;
+
+    while(!ret && !eof)
+    {
+        gssize n = g_input_stream_read(stream, buf, sizeof(buf), cancellable, error);
+        gsize i, start = 0;
+
+        if(n < 0) /* error */
+            break;
+        if(n == 0) /* EOF */
+            eof = TRUE;
+
+        for(i = 0; i < (gsize)n; ++i)
+        {
+            if(buf[i] == '\r')
+            {
+                g_string_append_len(line, buf + start, i - start);
+                ret = fm_search_job_match_content_text(priv, line->str);
+                g_string_truncate(line, 0);
+                start = i + 1;
+                last_was_cr = TRUE;
+                if(ret)
+                    break;
+            }
+            else if(buf[i] == '\n')
+            {
+                if(!last_was_cr)
+                {
+                    g_string_append_len(line, buf + start, i - start);
+                    ret = fm_search_job_match_content_text(priv, line->str);
+                    g_string_truncate(line, 0);
+                    if(ret)
+                    {
+                        start = i + 1;
+                        break;
+                    }
+                }
+                start = i + 1;
+                last_was_cr = FALSE;
+            }
+            else
+                last_was_cr = FALSE;
         }
-        g_free(line);
-    }while(ret == FALSE);
-    g_object_unref(input_stream);
+
+        if(ret)
+            break;
+
+        /* Keep the incomplete line for the next read. */
+        if(start < (gsize)n)
+            g_string_append_len(line, buf + start, (gsize)n - start);
+
+        if(eof)
+        {
+            if(line->len > 0)
+                ret = fm_search_job_match_content_text(priv, line->str);
+            break;
+        }
+
+        /* The line is longer than the allowed limit. Match what we have,
+         * then keep only a small tail so memory usage stays bounded. */
+        if(line->len > max_line)
+        {
+            ret = fm_search_job_match_content_text(priv, line->str);
+            if(ret)
+                break;
+            if(keep > 0)
+            {
+                gsize len = MIN(keep, line->len);
+                memmove(line->str, line->str + line->len - len, len);
+                g_string_truncate(line, len);
+            }
+            else
+                g_string_truncate(line, 0);
+        }
+    }
+
+    g_string_free(line, TRUE);
     return ret;
 }
 

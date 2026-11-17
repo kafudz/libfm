@@ -808,7 +808,7 @@ static void generate_thumbnails(ThumbnailTask* task)
     if (fm_file_info_is_image(task->fi) &&
         /* if the image file is too large, don't generate thumbnail for it. */
         (fm_config->thumbnail_max == 0 ||
-         fm_file_info_get_size(task->fi) <= (fm_config->thumbnail_max << 10)))
+         fm_file_info_get_size(task->fi) <= ((goffset)fm_config->thumbnail_max << 10)))
     {
         generate_thumbnails_with_builtin(task);
     }

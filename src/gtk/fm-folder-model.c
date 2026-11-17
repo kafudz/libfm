@@ -68,7 +68,7 @@ struct _FmFolderModel
     guint theme_change_handler;
     guint icon_size;
 
-    guint thumbnail_max;
+    goffset thumbnail_max;
     GList* thumbnail_requests;
     GHashTable* items_hash;
 
@@ -225,7 +225,7 @@ static void fm_folder_model_init(FmFolderModel* model)
     g_signal_connect(fm_config, "changed::thumbnail_local", G_CALLBACK(on_thumbnail_local_changed), model);
     g_signal_connect(fm_config, "changed::thumbnail_max", G_CALLBACK(on_thumbnail_max_changed), model);
 
-    model->thumbnail_max = fm_config->thumbnail_max << 10;
+    model->thumbnail_max = (goffset)fm_config->thumbnail_max << 10;
     model->items_hash = g_hash_table_new(g_direct_hash, g_direct_equal);
 }
 
@@ -1748,7 +1748,7 @@ static void on_thumbnail_max_changed(FmConfig* cfg, gpointer user_data)
     GList* new_reqs = NULL;
     GSequenceIter* seq_it;
     FmFileInfo* fi;
-    guint thumbnail_max_bytes = fm_config->thumbnail_max << 10;
+    goffset thumbnail_max_bytes = (goffset)fm_config->thumbnail_max << 10;
     goffset size;
 
     seq_it = g_sequence_get_begin_iter(model->items);
