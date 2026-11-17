@@ -10,18 +10,18 @@ cd "$SRC_DIR"
 AUTOMAKE=${AUTOMAKE:-automake}
 AM_INSTALLED_VERSION=$($AUTOMAKE --version | sed -e '2,$ d' -e 's/.* \([0-9]*\.[0-9]*\).*/\1/')
 
-# FIXME: we need a better way for version check later.
-case "$AM_INSTALLED_VERSION" in
-    1.1[1-9])
-	;;
-    *)
+AM_MAJOR=${AM_INSTALLED_VERSION%%.*}
+AM_MINOR=${AM_INSTALLED_VERSION#*.}
+AM_MAJOR=${AM_MAJOR:-0}
+AM_MINOR=${AM_MINOR:-0}
+if test "$AM_MAJOR" -lt 1 ||
+   { test "$AM_MAJOR" -eq 1 && test "$AM_MINOR" -lt 11; }; then
 	echo
 	echo "You must have automake >= 1.11 installed."
 	echo "Install the appropriate package for your distribution,"
 	echo "or get the source tarball at http://ftp.gnu.org/gnu/automake/"
 	exit 1
-	;;
-esac
+fi
 
 
 if [ "x${ACLOCAL_DIR}" != "x" ]; then
