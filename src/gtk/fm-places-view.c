@@ -526,6 +526,9 @@ static void fm_places_view_init(FmPlacesView *self)
                                        fm_places_model_mount_indicator_cell_data_func,
                                        NULL, NULL);
 
+    /* leave some room between the icon and its label */
+    gtk_tree_view_column_set_spacing(col, 6);
+
     gtk_tree_view_append_column ( GTK_TREE_VIEW(self), col );
 
     gtk_tree_view_enable_model_drag_source(GTK_TREE_VIEW(self), GDK_BUTTON1_MASK,
