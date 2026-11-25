@@ -42,6 +42,16 @@
 #include "fm-cell-renderer-pixbuf.h"
 
 static void fm_cell_renderer_pixbuf_dispose  (GObject *object);
+#if GTK_CHECK_VERSION(3, 0, 0)
+static void fm_cell_renderer_pixbuf_get_preferred_width(GtkCellRenderer *cell,
+                                                        GtkWidget *widget,
+                                                        gint *minimum_size,
+                                                        gint *natural_size);
+static void fm_cell_renderer_pixbuf_get_preferred_height(GtkCellRenderer *cell,
+                                                         GtkWidget *widget,
+                                                         gint *minimum_size,
+                                                         gint *natural_size);
+#endif
 
 static void fm_cell_renderer_pixbuf_get_size   (GtkCellRenderer            *cell,
 						 GtkWidget                  *widget,
@@ -146,6 +156,11 @@ static void fm_cell_renderer_pixbuf_class_init(FmCellRendererPixbufClass *klass)
     g_object_class->set_property = fm_cell_renderer_pixbuf_set_property;
 
     cell_class->get_size = fm_cell_renderer_pixbuf_get_size;
+#if GTK_CHECK_VERSION(3, 0, 0)
+    /* GTK3 no longer asks get_size(), so the fixed size has to be honored here */
+    cell_class->get_preferred_width = fm_cell_renderer_pixbuf_get_preferred_width;
+    cell_class->get_preferred_height = fm_cell_renderer_pixbuf_get_preferred_height;
+#endif
     cell_class->render = fm_cell_renderer_pixbuf_render;
 
     /**
@@ -295,6 +310,49 @@ static void fm_cell_renderer_pixbuf_get_size   (GtkCellRenderer            *cell
 }
 
 #if GTK_CHECK_VERSION(3, 0, 0)
+/* The cell is never smaller than the icon it has to draw, so an icon is not
+ * cut off, and never smaller than the requested fixed size either, so rows
+ * keep a stable size while icons are still loading. */
+static void fm_cell_renderer_pixbuf_get_preferred_width(GtkCellRenderer *cell,
+                                                        GtkWidget *widget,
+                                                        gint *minimum_size,
+                                                        gint *natural_size)
+{
+    FmCellRendererPixbuf* render = FM_CELL_RENDERER_PIXBUF(cell);
+    GtkCellRendererClass *parent = GTK_CELL_RENDERER_CLASS(fm_cell_renderer_pixbuf_parent_class);
+    gint xpad;
+
+    parent->get_preferred_width(cell, widget, minimum_size, natural_size);
+    if (render->fixed_w > 0)
+    {
+        gtk_cell_renderer_get_padding(cell, &xpad, NULL);
+        if (minimum_size && *minimum_size < render->fixed_w + 2 * xpad)
+            *minimum_size = render->fixed_w + 2 * xpad;
+        if (natural_size && *natural_size < render->fixed_w + 2 * xpad)
+            *natural_size = render->fixed_w + 2 * xpad;
+    }
+}
+
+static void fm_cell_renderer_pixbuf_get_preferred_height(GtkCellRenderer *cell,
+                                                         GtkWidget *widget,
+                                                         gint *minimum_size,
+                                                         gint *natural_size)
+{
+    FmCellRendererPixbuf* render = FM_CELL_RENDERER_PIXBUF(cell);
+    GtkCellRendererClass *parent = GTK_CELL_RENDERER_CLASS(fm_cell_renderer_pixbuf_parent_class);
+    gint ypad;
+
+    parent->get_preferred_height(cell, widget, minimum_size, natural_size);
+    if (render->fixed_h > 0)
+    {
+        gtk_cell_renderer_get_padding(cell, NULL, &ypad);
+        if (minimum_size && *minimum_size < render->fixed_h + 2 * ypad)
+            *minimum_size = render->fixed_h + 2 * ypad;
+        if (natural_size && *natural_size < render->fixed_h + 2 * ypad)
+            *natural_size = render->fixed_h + 2 * ypad;
+    }
+}
+
 static void fm_cell_renderer_pixbuf_render(GtkCellRenderer *cell,
                                            cairo_t *cr,
                                            GtkWidget *widget,
